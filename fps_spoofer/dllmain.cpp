@@ -1,5 +1,6 @@
 #include <Windows.h>
 #include <Psapi.h>
+#include <time.h>
 
 #include "CMem.h"
 #include "PatternScan.h"
@@ -8,11 +9,9 @@ void WINAPI Load();
 void FpsHook();
 DWORD jmpBack = NULL;
 
-// Tell the server we have (real FPS / x) frames
-int x = 3;
-
-// e.g: if we have 300 fps, tell the server we actually have 100. (300 / 3 = 100)
-// If we have 100 fps, tell the server we have 33. Change at your own discretion.
+DWORD* DrunkLevel = 0;
+int fpsStep = 60;
+int fpsVariation = 3;
 
 HMODULE hMod = NULL;
 BOOL APIENTRY DllMain( HMODULE hModule,
@@ -33,8 +32,16 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 	return TRUE;
 }
 
+int RandomVariation()
+{
+	// Get random value between -fpsVariation and fpsVariation (range is fpsVariation * 2)
+	return (rand() % 2 == 1 ? (rand() % fpsVariation) : -(rand() % fpsVariation));
+}
+
 void WINAPI Load() {
 	// http://ugbase.eu/Thread-Checking-is-game-fully-loaded-or-not
+	srand((unsigned int)time(NULL));
+
 	while(*(bool*)0xA444A0 == false)
 	{
 		Sleep(1000);
@@ -44,11 +51,20 @@ void WINAPI Load() {
 	jmpBack = fps + 6;
 
 	CMem::ApplyJmp((BYTE*)fps, (DWORD)FpsHook, 6);
-}
 
-int Random()
-{
-	return rand() % x;
+	while (DrunkLevel == 0)
+	{
+		Sleep(1000);
+	}
+
+	while (DrunkLevel != 0) 
+	{
+		if (*DrunkLevel <= 2000)
+		{
+			(*DrunkLevel) = max((*DrunkLevel) - (fpsStep + RandomVariation()), 0);
+		}
+		Sleep(1000);
+	}
 }
 
 __declspec(naked) void FpsHook()
@@ -57,22 +73,27 @@ __declspec(naked) void FpsHook()
 	{
 		pushad
 	}
-	// one in x chance we calculate a frame loss
 
-	if (Random() == 0)
+	if (DrunkLevel == 0)
 	{
 		__asm
 		{
 			popad
-			mov[esi + 0x00002C9], eax
+			add esi, 000002C9h
+			mov[DrunkLevel], esi
+			sub esi, 000002C9h
+
+			inc eax
 			jmp[jmpBack]
 		}
 	}
-
-	__asm
+	else
 	{
-		popad
-		inc eax
-		jmp[jmpBack]
+		__asm
+		{
+			popad
+			inc eax
+			jmp[jmpBack]
+		}
 	}
 }
